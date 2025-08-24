@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Family Tree — Full</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#cbd5e1;
+    --accent:#2563eb; --card:#f8fafc; --danger:#ef4444; --ok:#16a34a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:40}
+  header h1{margin:0;font-size:1.15rem}
+  .left-controls{display:flex;gap:8px;align-items:center}
+  .search-box{display:flex;align-items:center;gap:6px}
+  input[type="search"]{padding:.45rem .6rem;border:1px solid var(--line);border-radius:.5rem;width:220px}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button, .btn{padding:.45rem .65rem;border-radius:.6rem;border:1px solid var(--line);background:#fff;cursor:pointer;font:inherit}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
+  main{flex:1;overflow:hidden;position:relative;padding:12px}
+
+/* Canvas + viewport */
+  .canvas-wrap{width:100%;height:100%;background:linear-gradient(180deg,#fbfdff,#fff);display:flex;justify-content:center;align-items:flex-start;overflow:hidden;position:relative}
+  /* viewport is the transformable element */
+  .viewport{transform-origin:0 0;will-change:transform;position:absolute;left:0;top:0}
+  /* tree container inside viewport */
+  .tree{display:inline-block;padding:20px;border-radius:12px;border:1px solid var(--line);background:linear-gradient(#fff,#fff);}
+
+/* tree structure: families horizontally */
+  .tree ul{list-style:none;margin:0;padding-top:28px;display:flex;gap:28px;justify-content:center;align-items:flex-start}
+  .tree li{list-style:none;position:relative;display:flex;flex-direction:column;align-items:center;padding:0 8px;text-align:center;min-width:0}
+  .tree li::before{content:"";position:absolute;top:-28px;left:50%;width:2px;height:28px;background:var(--line);transform:translateX(-50%);z-index:0}
+  .tree > ul{padding-top:0}
+  .tree > ul::before, .tree > ul > li::before{display:none}
+
+/* family box */
+  .family{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;min-width:260px;display:flex;flex-direction:column;align-items:center;position:relative}
+  .partners{display:flex;gap:12px;align-items:center;position:relative;padding:4px 6px}
+  .partners::after{content:"";position:absolute;left:8px;right:8px;top:50%;height:2px;background:var(--line);z-index:0}
+  .partner{background:#fff;border-radius:10px;border:1px solid var(--line);padding:8px;width:140px;display:flex;flex-direction:column;gap:6px;align-items:center;z-index:1;box-shadow:0 2px 8px rgba(2,8,23,.04)}
+  .partner img{width:64px;height:64px;border-radius:50%;object-fit:cover}
+  .name{font-weight:700}
+  .role{font-size:.82rem;color:var(--muted)}
+  .family-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+
+/* down connector from family to children shared line */
+  .downline{width:2px;height:24px;background:var(--line);margin-top:8px}
+  .children-row{margin-top:10px;display:flex;flex-direction:column;align-items:center;position:relative}
+  .children-list{display:flex;gap:20px;align-items:flex-start;justify-content:center;padding-top:8px}
+
+/* child's small vertical connector to shared siblings line */
+  .child-slot{display:flex;flex-direction:column;align-items:center}
+
+/* mini-map */
+  .minimap{position:fixed;right:14px;bottom:14px;width:220px;height:140px;border:1px solid rgba(0,0,0,.06);background:#fff;border-radius:8px;box-shadow:0 6px 24px rgba(2,8,23,.08);z-index:50;overflow:hidden;padding:6px;display:flex;flex-direction:column}
+  .minimap .map{flex:1;position:relative;overflow:hidden;border-radius:4px;background:#f7fafc}
+  .minimap .controls{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
+  .minimap .viewport-rect{position:absolute;border:2px solid rgba(37,99,235,.7);pointer-events:none;border-radius:2px}
+
+/* highlight */
+  .highlight{box-shadow:0 0 0 3px rgba(37,99,235,.14);outline:2px solid rgba(37,99,235,.18);outline-offset:3px}
+
+/* responsive */
+  @media (max-width:900px){
+    .partner{width:120px}
+    .family{min-width:220px}
+    .minimap{width:160px;height:110px}
+  }
+  @media print{header,.controls,.minimap{display:none} .partner{box-shadow:none}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="left-controls">
+    <h1>Family Tree</h1>
+    <div class="search-box" style="margin-left:12px">
+      <input id="searchInput" type="search" placeholder="Search name..." />
+      <button class="btn" id="prevMatch" title="Previous match">◀</button>
+      <button class="btn" id="nextMatch" title="Next match">▶</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="newRoot">Add Root</button>
+    <button class="btn" id="expandAll">Expand All</button>
+    <button class="btn" id="collapseAll">Collapse All</button>
+    <button class="btn" id="exportBtn">Export</button>
+    <label class="btn" for="importInput">Import</label>
+    <input id="importInput" type="file" accept="application/json" style="display:none" />
+
+    <!-- transform controls -->
+    <button class="btn" id="zoomIn">＋</button>
+    <button class="btn" id="zoomOut">－</button>
+    <button class="btn" id="rotateLeft">⤺</button>
+    <button class="btn" id="rotateRight">⤻</button>
+    <button class="btn" id="resetView">Reset</button>
+  </div>
+</header>
+
+<main>
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="viewport" id="viewport">
+      <div class="tree" id="tree"></div>
+    </div>
+  </div>
+
+  <!-- mini-map bottom-right -->
+  <div class="minimap" id="minimap">
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;padding:0 4px">
+      <div>Navigator</div>
+      <div style="font-size:.75rem;color:var(--muted)">drag to pan</div>
+    </div>
+    <div class="map" id="map"></div>
+    <div class="controls">
+      <button class="btn" id="miniCenter">Center</button>
+    </div>
+  </div>
+</main>
+
+<!-- delete confirm -->
+<div id="confirm" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(2,6,23,.36);z-index:80">
+  <div style="background:#fff;padding:14px;border-radius:10px;min-width:300px;border:1px solid var(--line)">
+    <div style="font-weight:700;margin-bottom:8px">Delete branch?</div>
+    <div style="color:var(--muted);font-size:.95rem">This removes the selected member and all descendants. This cannot be undone.</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+      <button class="btn" id="cancelDelete">Cancel</button>
+      <button class="btn danger" id="confirmDelete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* -------------------------
+   DATA MODEL (families & people)
+   - tree = { people: {id:Person}, families: {id:Family}, roots: [familyId,...] }
+   - Person = {id,name,role,img}
+   - Family = {id, partners:[personId,...], children:[familyId,...]}
+   --------------------------*/
+const STORAGE_KEY = 'familyTree.v3';
+
+function uid(){ return Math.random().toString(36).slice(2,10) }
+
+/* load + upgrade older structure if present */
+function loadTree(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(raw) try { return JSON.parse(raw) } catch(e){}
+  const old = localStorage.getItem('familyTree');
+  if(old) {
+    try{
+      const v1 = JSON.parse(old);
+      return upgradeFromV1(v1);
+    }catch(e){}
+  }
+  const empty = { people:{}, families:{}, roots:[] };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(empty));
+  return empty;
+}
+function saveTree(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(tree)) }
+
+function upgradeFromV1(v1){
+  const t = { people:{}, families:{}, roots:[] };
+  function makeFamily(node){
+    const pid = uid();
+    t.people[pid] = { id:pid, name: node.name||'Unnamed', role: node.role||'', img: node.img||placeholder() };
+    const fid = uid();
+    t.families[fid] = { id:fid, partners:[pid], children:[] };
+    (node.children||[]).forEach(ch => { t.families[fid].children.push(makeFamily(ch)) });
+    return fid;
+  }
+  if(Array.isArray(v1.children) && v1.children.length) v1.children.forEach(n=>t.roots.push(makeFamily(n)));
+  else { const f = createFamily([]); t.roots.push(f.id) }
+  return t;
+}
+
+function placeholder(){ return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="100%" height="100%" fill="#e2e8f0"/><text x="50%" y="52%" text-anchor="middle" font-size="12" fill="#475569" font-family="Arial">No Photo</text></svg>`) }
+
+/* The tree object */
+let tree = loadTree();
+
+/* -------------------------
+   RENDERING
+   -------------------------*/
+const treeEl = document.getElementById('tree');
+const viewport = document.getElementById('viewport');
+const canvasWrap = document.getElementById('canvasWrap');
+const mapEl = document.getElementById('map');
+const minimap = document.getElementById('minimap');
+
+function render(){
+  treeEl.innerHTML = '';
+  const ul = document.createElement('ul');
+  ul.style.justifyContent = 'center';
+  if(!tree.roots.length){
+    const f = createFamily([]); tree.roots.push(f.id); saveTree();
+  }
+  tree.roots.forEach(fid => ul.appendChild(renderFamily(fid)));
+  treeEl.appendChild(ul);
+  updateMinimap();
+}
+
+/* render family recursively */
+function renderFamily(fid){
+  const fam = tree.families[fid];
+  const li = document.createElement('li');
+
+  const familyBox = document.createElement('div');
+  familyBox.className = 'family';
+  familyBox.dataset.familyId = fid;
+
+  // partners row
+  const partnersRow = document.createElement('div');
+  partnersRow.className = 'partners';
+
+  fam.partners.forEach(pid => partnersRow.appendChild(renderPartnerCard(pid, fid)));
+
+  // add placeholder to add partner if less than 2
+  if(fam.partners.length < 2){
+    const holder = document.createElement('div');
+    holder.className = 'partner';
+    holder.style.display = 'flex';
+    holder.style.justifyContent = 'center';
+    holder.style.alignItems = 'center';
+    const btn = document.createElement('button'); btn.className='btn'; btn.textContent = fam.partners.length ? 'Add Spouse' : 'Add Partner';
+    btn.addEventListener('click', ()=> openForm({mode:'create-partner', familyId:fid}));
+    holder.appendChild(btn);
+    partnersRow.appendChild(holder);
+  }
+
+  familyBox.appendChild(partnersRow);
+
+  // actions
+  const actions = document.createElement('div'); actions.className = 'family-actions';
+  const addChildBtn = document.createElement('button'); addChildBtn.className='btn primary'; addChildBtn.textContent='Add Child';
+  addChildBtn.addEventListener('click', ()=> openForm({mode:'create-child', familyId:fid}));
+  actions.appendChild(addChildBtn);
+  if(!tree.roots.includes(fid) || tree.roots.length>1){
+    const delBtn = document.createElement('button'); delBtn.className='btn danger'; delBtn.textContent='Delete Branch';
+    delBtn.addEventListener('click', ()=> confirmDelete(()=>{ deleteFamily(fid); saveTree(); render(); }));
+    actions.appendChild(delBtn);
+  }
+  familyBox.appendChild(actions);
+
+  li.appendChild(familyBox);
+
+  // downline if has children
+  if(fam.children && fam.children.length){
+    const down = document.createElement('div'); down.className='downline'; li.appendChild(down);
+
+    // children row: shared horizontal line (handled by ::before on ul)
+    const childrenWrap = document.createElement('div'); childrenWrap.className='children-row';
+    const childrenUl = document.createElement('ul'); childrenUl.className='children-list';
+    fam.children.forEach(cf => {
+      const childSlot = document.createElement('li');
+      childSlot.className = 'child-slot';
+      // each child has small vertical connector to siblings shared line
+      const small = document.createElement('div'); small.style.width='2px'; small.style.height='12px'; small.style.background='var(--line)';
+      childSlot.appendChild(small);
+      childSlot.appendChild(renderFamily(cf));
+      childrenUl.appendChild(childSlot);
+    });
+    childrenWrap.appendChild(childrenUl);
+    li.appendChild(childrenWrap);
+  }
+
+  return li;
+}
+
+function renderPartnerCard(pid, familyId){
+  const p = tree.people[pid];
+  const card = document.createElement('div'); card.className='partner';
+  card.dataset.personId = pid;
+  card.innerHTML = `
+    <img src="${p.img||placeholder()}" alt="${escapeHtml(p.name||'')}" />
+    <div class="name">${escapeHtml(p.name||'Unnamed')}</div>
+    <div class="role">${escapeHtml(p.role||'')}</div>
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      <button class="btn btn-edit">Edit</button>
+      <button class="btn danger btn-remove">Remove</button>
+    </div>
+  `;
+  card.querySelector('.btn-edit').addEventListener('click', ()=> openForm({mode:'edit', personId:pid, familyId}));
+  card.querySelector('.btn-remove').addEventListener('click', ()=> {
+    // removing partner: if it's the last partner and has children, block
+    const fam = tree.families[familyId];
+    if(fam.partners.length===1 && fam.children.length){
+      alert('Cannot remove the only partner while children exist. Delete branch or add another partner first.');
+      return;
+    }
+    confirmDelete(()=> { removePartnerFromFamily(pid, familyId); saveTree(); render(); });
+  });
+  return card;
+}
+
+/* -------------------------
+   FORMS: add/edit
+   -------------------------*/
+function openForm({mode, familyId, personId}){
+  const fam = familyId ? tree.families[familyId] : null;
+  const overlay = document.createElement('div');
+  overlay.style.position='fixed'; overlay.style.inset='0'; overlay.style.display='flex';
+  overlay.style.alignItems='center'; overlay.style.justifyContent='center'; overlay.style.background='rgba(2,6,23,.4)'; overlay.style.zIndex=90;
+
+  const form = document.createElement('div'); form.className='form';
+  const isEdit = mode==='edit';
+  const person = isEdit ? tree.people[personId] : { name:'', role:'', img: '' };
+
+  // role options expanded
+  const roleOptions = ['Father','Mother','Son','Daughter','Husband','Wife','Grandfather','Grandmother','Uncle','Aunt','Brother','Sister','Cousin','Nephew','Niece','Spouse','Other'];
+
+  form.innerHTML = `
+    <div style="font-weight:700;margin-bottom:6px">${isEdit ? 'Edit Member' : (mode==='create-child' ? 'Add Child' : (fam && fam.partners.length ? 'Add Spouse' : 'Add Partner'))}</div>
+    <input id="f-name" type="text" placeholder="Name" value="${escapeAttr(person.name||'')}" />
+    <div class="row">
+      <select id="f-role">${roleOptions.map(o=>`<option value="${o}">${o}</option>`).join('')}</select>
+      <input id="f-role-custom" type="text" placeholder="Custom role (optional)" />
+    </div>
+    <input id="f-file" type="file" accept="image/*" />
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" id="f-cancel">Cancel</button>
+      <button class="btn primary" id="f-save">Save</button>
+    </div>
+  `;
+  overlay.appendChild(form);
+  document.body.appendChild(overlay);
+
+  // preselect role if editing
+  if(isEdit){
+    const sel = form.querySelector('#f-role');
+    if(['Father','Mother','Son','Daughter','Husband','Wife','Grandfather','Grandmother','Uncle','Aunt','Brother','Sister','Cousin','Nephew','Niece','Spouse'].includes(person.role)){
+      sel.value = person.role;
+    } else if(person.role){
+      sel.value = 'Other'; form.querySelector('#f-role-custom').value = person.role;
+    }
+  } else {
+    if(mode==='create-child') form.querySelector('#f-role').value='Son';
+    if(mode==='create-partner') form.querySelector('#f-role').value='Spouse';
+  }
+
+  form.querySelector('#f-cancel').onclick = ()=> overlay.remove();
+
+  form.querySelector('#f-save').onclick = ()=> {
+    const name = form.querySelector('#f-name').value.trim() || 'Unnamed';
+    let role = form.querySelector('#f-role').value;
+    const custom = form.querySelector('#f-role-custom').value.trim();
+    if(role==='Other' && custom) role = custom;
+
+    const file = form.querySelector('#f-file').files[0];
+    const finish = (imgData) => {
+      if(isEdit){
+        tree.people[personId].name = name; tree.people[personId].role = role;
+        if(imgData) tree.people[personId].img = imgData;
+      } else if(mode==='create-partner'){
+        createPartner(familyId, {name, role, img: imgData || placeholder()});
+      } else if(mode==='create-child'){
+        createChildFamily(familyId, {name, role, img: imgData || placeholder()});
+      } else if(mode==='create-root'){
+        const f = createFamily([]); const pid = createPerson({name,role,img: imgData || placeholder()}); tree.families[f.id].partners.push(pid); tree.roots.push(f.id);
+      }
+      saveTree(); render(); overlay.remove();
+    };
+    if(file){ const reader = new FileReader(); reader.onload = e => finish(e.target.result); reader.readAsDataURL(file); }
+    else finish(null);
+  };
+}
+
+/* -------------------------
+   MUTATIONS
+   -------------------------*/
+function createPerson(data){
+  const id = uid(); tree.people[id] = { id, name: data.name||'Unnamed', role: data.role||'', img: data.img||placeholder() }; return id;
+}
+function createFamily(partners){
+  const id = uid(); tree.families[id] = { id, partners:[...partners], children:[] }; return tree.families[id];
+}
+function createPartner(familyId, personData){
+  const fam = tree.families[familyId]; if(!fam) return; if(fam.partners.length>=2) return; const pid = createPerson(personData); fam.partners.push(pid);
+}
+function createChildFamily(parentFamilyId, personData){
+  const pid = createPerson(personData); const childFam = createFamily([pid]); tree.families[parentFamilyId].children.push(childFam.id); return childFam;
+}
+
+function removePartnerFromFamily(personId, familyId){
+  const fam = tree.families[familyId];
+  if(!fam) return;
+  fam.partners = fam.partners.filter(id=>id!==personId);
+  delete tree.people[personId];
+  // if family now empty and no children, remove the family node
+  if(fam.partners.length===0 && fam.children.length===0){
+    // remove from roots or parent's children
+    const i = tree.roots.indexOf(familyId); if(i>=0) tree.roots.splice(i,1);
+    for(const k in tree.families) tree.families[k].children = tree.families[k].children.filter(c=>c!==familyId);
+    delete tree.families[familyId];
+  }
+}
+function deleteFamily(fid){
+  const fam = tree.families[fid]; if(!fam) return;
+  // delete children recursively
+  (fam.children||[]).forEach(cfid=> deleteFamily(cfid));
+  // delete partners
+  (fam.partners||[]).forEach(pid=> delete tree.people[pid]);
+  // remove references
+  tree.roots = tree.roots.filter(r=> r!==fid);
+  for(const k in tree.families) tree.families[k].children = tree.families[k].children.filter(c=> c!==fid);
+  delete tree.families[fid];
+}
+
+/* -------------------------
+   UTILITIES
+   -------------------------*/
+function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
+function escapeAttr(s){ return String(s||'').replace(/["']/g, c=>({'"':'&quot;','\'':'&#39;'}[c])) }
+
+/* -------------------------
+   SEARCH: highlight + center
+   -------------------------*/
+let currentMatches = []; let matchIndex = -1;
+const searchInput = document.getElementById('searchInput');
+document.getElementById('nextMatch').addEventListener('click', ()=> navigateMatch(1));
+document.getElementById('prevMatch').addEventListener('click', ()=> navigateMatch(-1));
+searchInput.addEventListener('input', ()=> doSearch(searchInput.value.trim()));
+
+function doSearch(q){
+  // clear
+  document.querySelectorAll('.highlight').forEach(el=>el.classList.remove('highlight'));
+  currentMatches = []; matchIndex = -1;
+  if(!q) return;
+  const names = Array.from(document.querySelectorAll('[data-person-id]'));
+  names.forEach(el=>{
+    const pid = el.dataset.personId;
+    const p = tree.people[pid];
+    if(!p) return;
+    if(p.name && p.name.toLowerCase().includes(q.toLowerCase())){
+      currentMatches.push(pid);
+      el.classList.add('highlight');
+    }
+  });
+  if(currentMatches.length) { matchIndex = 0; centerOnPerson(currentMatches[0]); }
+}
+
+function navigateMatch(dir){
+  if(!currentMatches.length) return;
+  matchIndex = (matchIndex + dir + currentMatches.length) % currentMatches.length;
+  const pid = currentMatches[matchIndex];
+  document.querySelectorAll('.highlight').forEach(el=>el.classList.remove('highlight'));
+  const el = document.querySelector(`[data-person-id="${pid}"]`);
+  if(el) el.classList.add('highlight');
+  centerOnPerson(pid);
+}
+
+/* center viewport so that person card is visible at center */
+function centerOnPerson(pid){
+  const el = document.querySelector(`[data-person-id="${pid}"]`);
+  if(!el) return;
+  // find bounding rect of element inside viewport-local coordinates
+  const treeRect = treeEl.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  // compute center of element relative to treeEl top-left
+  const cx = (elRect.left - treeRect.left) + elRect.width/2;
+  const cy = (elRect.top - treeRect.top) + elRect.height/2;
+  // we need to compute transform that centers (cx,cy) in canvasWrap center considering current transform
+  // read current transform
+  const t = getTransformState();
+  const canvasRect = canvasWrap.getBoundingClientRect();
+  const viewW = canvasRect.width; const viewH = canvasRect.height;
+  // compute target translate so that (cx,cy) * scale/rotation -> at center of viewport
+  // For simplicity, we apply only scale and translation (rotation complicates math). To keep rotation, we rotate the point back
+  // Convert point (cx,cy) into transformed coordinates after rotation:
+  const angle = t.rotate * Math.PI/180;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  // transform point with scale and rotation around origin (0,0)
+  const tx = (cx * t.scale) * cos - (cy * t.scale) * sin;
+  const ty = (cx * t.scale) * sin + (cy * t.scale) * cos;
+  // we want (tx + t.x, ty + t.y) to be at center of canvasWrap
+  const centerX = viewW/2, centerY = viewH/2;
+  const newX = centerX - tx;
+  const newY = centerY - ty;
+  setTransform(newX, newY, t.scale, t.rotate);
+  updateMinimapViewport();
+}
+
+/* -------------------------
+   TRANSFORMS: scale, translate, rotate + gestures
+   -------------------------*/
+let state = { x:0, y:0, scale:1, rotate:0 };
+const MIN_SCALE = 0.1, MAX_SCALE = 3;
+
+function applyTransform(){
+  viewport.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale}) rotate(${state.rotate}deg)`;
+  updateMinimapViewport();
+}
+function setTransform(x,y,scale,rotate){
+  state.x = Number(x); state.y = Number(y); state.scale = Number(scale); state.rotate = Number(rotate);
+  applyTransform();
+}
+function getTransformState(){ return {...state} }
+
+/* buttons */
+document.getElementById('zoomIn').addEventListener('click', ()=> { setTransform(state.x, state.y, Math.min(MAX_SCALE, state.scale*1.2), state.rotate); });
+document.getElementById('zoomOut').addEventListener('click', ()=> { setTransform(state.x, state.y, Math.max(MIN_SCALE, state.scale/1.2), state.rotate); });
+document.getElementById('rotateLeft').addEventListener('click', ()=> { setTransform(state.x, state.y, state.scale, state.rotate-10); });
+document.getElementById('rotateRight').addEventListener('click', ()=> { setTransform(state.x, state.y, state.scale, state.rotate+10); });
+document.getElementById('resetView').addEventListener('click', ()=> { setTransform(0,0,1,0); });
+
+/* wheel zoom centered on pointer */
+canvasWrap.addEventListener('wheel', (e)=>{
+  e.preventDefault();
+  const delta = -e.deltaY;
+  const zoomFactor = delta>0 ? 1.08 : 1/1.08;
+  // zoom toward pointer
+  const rect = canvasWrap.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const prev = getTransformState();
+  const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev.scale * zoomFactor));
+  // compute world coordinate under pointer
+  const angle = prev.rotate * Math.PI/180;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  // world point approx (we ignore rotation in this pointer-zoom math for simplicity)
+  const wx = (px - prev.x)/prev.scale;
+  const wy = (py - prev.y)/prev.scale;
+  // new translation to keep wx,wy under pointer
+  const newX = px - wx*newScale;
+  const newY = py - wy*newScale;
+  setTransform(newX, newY, newScale, prev.rotate);
+});
+
+/* pointer-based pan and rotate */
+let pointerState = {down:false, startX:0, startY:0, lastX:0, lastY:0, action:'pan'}; // action: 'pan' or 'rotate'
+canvasWrap.addEventListener('pointerdown', (e)=>{
+  // left button => pan, right button or shiftKey => rotate
+  pointerState.down = true;
+  pointerState.startX = e.clientX; pointerState.startY = e.clientY;
+  pointerState.lastX = e.clientX; pointerState.lastY = e.clientY;
+  pointerState.action = (e.button===2 || e.shiftKey) ? 'rotate' : 'pan';
+  canvasWrap.setPointerCapture(e.pointerId);
+});
+canvasWrap.addEventListener('pointermove', (e)=>{
+  if(!pointerState.down) return;
+  const dx = e.clientX - pointerState.lastX;
+  const dy = e.clientY - pointerState.lastY;
+  if(pointerState.action === 'pan'){
+    setTransform(state.x + dx, state.y + dy, state.scale, state.rotate);
+  } else {
+    // rotate around center by dx amount
+    setTransform(state.x, state.y, state.scale, state.rotate + dx*0.3);
+  }
+  pointerState.lastX = e.clientX; pointerState.lastY = e.clientY;
+});
+canvasWrap.addEventListener('pointerup', (e)=>{ pointerState.down = false; canvasWrap.releasePointerCapture(e.pointerId); });
+canvasWrap.addEventListener('contextmenu', (e)=> e.preventDefault()); // disable right-click menu
+
+/* mini-map: clone small scaled representation and clickable to pan */
+function updateMinimap(){
+  mapEl.innerHTML = '';
+  // clone treeEl into mapEl (shallow) and scale down via CSS transform
+  const clone = treeEl.cloneNode(true);
+  clone.style.transformOrigin = '0 0';
+  clone.style.pointerEvents = 'none';
+  clone.style.width = treeEl.scrollWidth + 'px';
+  clone.style.height = treeEl.scrollHeight + 'px';
+  // compute scale to fit into mapEl
+  const maxW = mapEl.clientWidth, maxH = mapEl.clientHeight;
+  const s = Math.min( (maxW-8) / Math.max(1, treeEl.scrollWidth), (maxH-8) / Math.max(1, treeEl.scrollHeight), 1);
+  clone.style.transform = `scale(${s})`;
+  clone.style.transformOrigin = '0 0';
+  clone.style.position = 'absolute'; clone.style.left = '4px'; clone.style.top = '4px';
+  mapEl.appendChild(clone);
+  // create viewport rect
+  const rect = document.createElement('div'); rect.className='viewport-rect';
+  rect.style.width = Math.max(20, (canvasWrap.clientWidth / state.scale) * s) + 'px';
+  rect.style.height = Math.max(12, (canvasWrap.clientHeight / state.scale) * s) + 'px';
+  // compute top-left of viewport relative to treeEl (taking rotation into account approximately)
+  // approximate: viewport shows area at (-state.x/state.scale, -state.y/state.scale) in tree coordinates
+  const tx = (-state.x / state.scale) * s + 4;
+  const ty = (-state.y / state.scale) * s + 4;
+  rect.style.left = tx + 'px';
+  rect.style.top = ty + 'px';
+  mapEl.appendChild(rect);
+  // clicking/dragging in minimap pans viewport
+  mapEl.onpointerdown = (ev)=>{
+    const rectMap = mapEl.getBoundingClientRect();
+    const px = ev.clientX - rectMap.left;
+    const py = ev.clientY - rectMap.top;
+    // center viewport at this position (in map coords)
+    const treeOffsetX = (px - 4) / s;
+    const treeOffsetY = (py - 4) / s;
+    const newX = canvasWrap.clientWidth/2 - treeOffsetX*state.scale;
+    const newY = canvasWrap.clientHeight/2 - treeOffsetY*state.scale;
+    setTransform(newX, newY, state.scale, state.rotate);
+  };
+}
+function updateMinimapViewport(){ updateMinimap(); }
+
+/* center map button */
+document.getElementById('miniCenter').addEventListener('click', ()=> {
+  // simple centering: place tree center in view
+  const treeRect = treeEl.getBoundingClientRect();
+  const centerX = treeEl.scrollWidth/2;
+  const centerY = treeEl.scrollHeight/2;
+  const newX = canvasWrap.clientWidth/2 - centerX*state.scale;
+  const newY = canvasWrap.clientHeight/2 - centerY*state.scale;
+  setTransform(newX, newY, state.scale, state.rotate);
+});
+
+/* -------------------------
+   EXPORT / IMPORT / ROOT
+   -------------------------*/
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(tree,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='family-tree.json'; a.click(); URL.revokeObjectURL(url);
+});
+document.getElementById('importInput').addEventListener('change', (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader(); reader.onload = ev => {
+    try{
+      const data = JSON.parse(ev.target.result);
+      if(!data || !data.people || !data.families || !Array.isArray(data.roots)) throw new Error('Invalid');
+      tree = data; saveTree(); render(); setTimeout(()=> setTransform(0,0,1,0),100);
+    }catch(err){ alert('Invalid JSON file') }
+  }; reader.readAsText(file);
+});
+document.getElementById('newRoot').addEventListener('click', ()=> {
+  openForm({mode:'create-root'});
+});
+
+/* expand/collapse (placeholders — visual collapse not fully implemented) */
+document.getElementById('expandAll').addEventListener('click', ()=> document.querySelectorAll('#tree li').forEach(li=>li.classList.remove('collapsed')));
+document.getElementById('collapseAll').addEventListener('click', ()=> document.querySelectorAll('#tree li').forEach(li=>li.classList.add('collapsed')));
+
+/* confirmation */
+const confirmEl = document.getElementById('confirm'); const cancelDelete = document.getElementById('cancelDelete'); const okDelete = document.getElementById('confirmDelete');
+let pendingDeleteCb = null;
+function confirmDelete(cb){ pendingDeleteCb = cb; confirmEl.style.display='flex'; }
+cancelDelete.onclick = ()=> { pendingDeleteCb=null; confirmEl.style.display='none'; }
+okDelete.onclick = ()=> { if(pendingDeleteCb) pendingDeleteCb(); pendingDeleteCb=null; confirmEl.style.display='none'; }
+
+/* -------------------------
+   INITIALIZE / helpers
+   -------------------------*/
+function ensureRootExists(){ if(!tree.roots.length){ const f = createFamily([]); tree.roots.push(f.id); saveTree(); } }
+ensureRootExists();
+render();
+setTimeout(()=> { setTransform(0,0,1,0); updateMinimap(); }, 80);
+
+/* make sure deleting a member deletes their table: we provide a convenience function to find family by personId */
+function findFamilyByPerson(personId){
+  for(const fid in tree.families){ if(tree.families[fid].partners.includes(personId)) return fid; }
+  return null;
+}
+
+/* helper: delete member by id (removes entire family where that person is a partner) */
+function deleteMember(personId){
+  const fid = findFamilyByPerson(personId);
+  if(fid) deleteFamily(fid);
+  saveTree(); render();
+}
+
+/* for completeness: update person function already used by form */
+function updatePerson(personId, patch){
+  Object.assign(tree.people[personId], patch);
+}
+
+/* Expose delete member to UI if needed (not displayed directly) */
+window.deleteMember = deleteMember;
+
+/* utility: update minimap on resize */
+window.addEventListener('resize', ()=> updateMinimap());
+
+/* END of script */
+</script>
+</body>
+</html>
